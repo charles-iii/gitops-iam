@@ -1,0 +1,211 @@
+# .github/workflows/pr-checks.yml
+#
+# Runs on every pull request targeting main.
+# Blocks merge if any security scan or policy check fails.
+# Posts terraform plan output as a PR comment for human reviewers.
+
+name: PR Security Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - "policies/**"
+
+permissions:
+  contents: read
+  pull-requests: write    # needed to post plan as PR comment
+  id-token: write         # needed for OIDC token exchange with AWS
+
+env:
+  TF_VERSION: "1.7.0"
+  AWS_REGION: "us-east-1"
+
+jobs:
+  # -------------------------------------------------------
+  # Job 1: Static security scans
+  # -------------------------------------------------------
+  security-scan:
+    name: Security Scans (Checkov + tfsec)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov — Terraform misconfigurations
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,checkov-results.sarif
+          soft_fail: false
+          # Fail on HIGH and CRITICAL only
+          check: "HIGH,CRITICAL"
+
+      - name: Upload Checkov SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+
+      - name: Run tfsec — AWS-specific security issues
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: terraform/
+          soft_fail: false
+          format: lovely,sarif
+          sarif_file: tfsec-results.sarif
+
+      - name: Upload tfsec SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: tfsec-results.sarif
+
+  # -------------------------------------------------------
+  # Job 2: OPA custom policy checks
+  # -------------------------------------------------------
+  policy-check:
+    name: OPA Policy Checks (Conftest)
+    runs-on: ubuntu-latest
+    needs: security-scan
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC — no static keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        working-directory: terraform/
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        working-directory: terraform/
+        run: terraform validate
+
+      - name: Generate terraform plan JSON for OPA
+        working-directory: terraform/
+        run: |
+          terraform plan \
+            -var="environment=dev" \
+            -var="github_org=${{ github.repository_owner }}" \
+            -var="github_repo=${{ github.event.repository.name }}" \
+            -var="security_account_id=${{ secrets.SECURITY_ACCOUNT_ID }}" \
+            -out=tfplan.binary \
+            -input=false
+          terraform show -json tfplan.binary > tfplan.json
+
+      - name: Install Conftest
+        run: |
+          wget https://github.com/open-policy-agent/conftest/releases/download/v0.50.0/conftest_0.50.0_Linux_x86_64.tar.gz
+          tar xzf conftest_0.50.0_Linux_x86_64.tar.gz
+          sudo mv conftest /usr/local/bin/
+
+      - name: Run OPA policy checks
+        working-directory: terraform/
+        run: |
+          conftest test \
+            --policy ../policies/ \
+            --namespace iam \
+            --output table \
+            tfplan.json
+
+  # -------------------------------------------------------
+  # Job 3: Terraform plan + post to PR
+  # -------------------------------------------------------
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: [security-scan, policy-check]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        working-directory: terraform/
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        id: plan
+        working-directory: terraform/
+        run: |
+          terraform plan \
+            -var="environment=dev" \
+            -var="github_org=${{ github.repository_owner }}" \
+            -var="github_repo=${{ github.event.repository.name }}" \
+            -var="security_account_id=${{ secrets.SECURITY_ACCOUNT_ID }}" \
+            -input=false \
+            -no-color 2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Post plan to PR comment
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/plan_output.txt', 'utf8');
+            const maxLen = 65000;
+            const truncated = plan.length > maxLen
+              ? plan.substring(0, maxLen) + '\n\n... (truncated — see Actions log for full output)'
+              : plan;
+
+            const body = `## Terraform Plan
+
+            **Triggered by:** @${{ github.actor }}
+            **Commit:** ${{ github.sha }}
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`hcl
+            ${truncated}
+            \`\`\`
+
+            </details>
+
+            ---
+            ⚠️ **Reviewer checklist before approving:**
+            - [ ] Do the changes match the stated purpose of this PR?
+            - [ ] Are any roles being granted more access than the task requires?
+            - [ ] Are all new roles tagged with Owner and Environment?
+            - [ ] Does this change require CISO-level sign-off (PassRole, cross-account, SCP)?
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      - name: Fail if plan has errors
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1

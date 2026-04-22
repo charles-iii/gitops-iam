@@ -1,0 +1,150 @@
+# .github/workflows/drift-detection.yml
+#
+# Runs nightly. Detects when live AWS IAM state has drifted from
+# the Terraform-managed baseline in Git.
+#
+# NIST 800-53 SI-7 — Software, Firmware, and Information Integrity
+#
+# Drift means either:
+#   a) An unauthorized out-of-band change (console, CLI, another pipeline)
+#   b) A bug or incomplete apply in this pipeline
+# Both are integrity violations requiring investigation.
+
+name: Nightly Drift Detection
+
+on:
+  schedule:
+    # Run at 06:00 UTC every day
+    - cron: "0 6 * * *"
+  # Also allow manual trigger for incident response
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write           # open a GitHub Issue on drift
+  id-token: write         # OIDC
+
+env:
+  TF_VERSION: "1.7.0"
+  AWS_REGION: "us-east-1"
+
+jobs:
+  drift-check:
+    name: Detect IAM Configuration Drift
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC — read-only plan role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        working-directory: terraform/
+        run: terraform init -input=false
+
+      - name: Run terraform plan (drift detection)
+        id: drift
+        working-directory: terraform/
+        run: |
+          set +e
+          terraform plan \
+            -var="environment=prod" \
+            -var="github_org=${{ github.repository_owner }}" \
+            -var="github_repo=${{ github.event.repository.name }}" \
+            -var="security_account_id=${{ secrets.SECURITY_ACCOUNT_ID }}" \
+            -detailed-exitcode \
+            -input=false \
+            -no-color 2>&1 | tee drift_output.txt
+
+          EXITCODE=${PIPESTATUS[0]}
+          echo "exitcode=${EXITCODE}" >> $GITHUB_OUTPUT
+
+          # Exit codes:
+          # 0 = no changes (no drift)
+          # 1 = error
+          # 2 = changes present (drift detected)
+
+      - name: No drift detected
+        if: steps.drift.outputs.exitcode == '0'
+        run: |
+          echo "✅ No drift detected. Live AWS IAM state matches Git baseline." >> $GITHUB_STEP_SUMMARY
+          echo "Checked at: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Drift detected — open GitHub Issue
+        if: steps.drift.outputs.exitcode == '2'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const drift = fs.readFileSync('terraform/drift_output.txt', 'utf8');
+            const maxLen = 60000;
+            const truncated = drift.length > maxLen
+              ? drift.substring(0, maxLen) + '\n\n... (truncated)'
+              : drift;
+
+            const title = `[DRIFT ALERT] IAM configuration drift detected — ${new Date().toISOString().split('T')[0]}`;
+
+            const body = `## IAM Configuration Drift Detected
+
+            **Severity:** HIGH
+            **Detected at:** ${new Date().toISOString()}
+            **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ### What this means
+            The live AWS IAM state does not match the Terraform baseline in Git.
+            This indicates either an unauthorized out-of-band change or an incomplete pipeline apply.
+
+            ### Required actions
+            1. Review the drift details below to identify what changed
+            2. Determine if the change was authorized (emergency break-glass?) or unauthorized
+            3. If authorized: open a PR to bring Git in sync with live state
+            4. If unauthorized: revert the change immediately and conduct an incident review
+            5. Close this issue once resolved with a comment explaining the root cause
+
+            ### Drift Details
+            <details><summary>Show terraform plan output</summary>
+
+            \`\`\`
+            ${truncated}
+            \`\`\`
+
+            </details>
+
+            /cc @${{ github.repository_owner }}
+            `;
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['drift', 'iam', 'security', 'incident']
+            });
+
+      - name: Terraform error — open GitHub Issue
+        if: steps.drift.outputs.exitcode == '1'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[ERROR] Drift detection workflow failed — ${new Date().toISOString().split('T')[0]}`,
+              body: `The nightly drift detection workflow encountered an error.\n\n` +
+                    `[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+              labels: ['pipeline-error', 'iam']
+            });
+            core.setFailed('Terraform plan returned an error during drift detection');

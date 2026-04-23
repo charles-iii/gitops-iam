@@ -96,10 +96,10 @@ resource "aws_iam_role" "service_account" {
 }
 
 resource "aws_iam_role_policy_attachment" "service_account" {
-  for_each = toset(var.policy_arns)
+  count = length(var.policy_arns)
 
   role       = aws_iam_role.service_account.name
-  policy_arn = each.value
+  policy_arn = var.policy_arns[count.index]
 }
 
 output "role_arn" {

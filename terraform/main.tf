@@ -29,6 +29,8 @@ provider "aws" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+
 # -------------------------------------------------------
 # IAM Roles
 # -------------------------------------------------------
@@ -38,7 +40,7 @@ module "developer_readonly_role" {
 
   role_name        = "developer-readonly-${var.environment}"
   description      = "Read-only access for developers in ${var.environment}"
-  trusted_accounts = var.trusted_account_ids
+  trusted_accounts = [data.aws_caller_identity.current.account_id]
   owner_team       = "platform"
   environment      = var.environment
 
@@ -53,7 +55,7 @@ module "ci_pipeline_role" {
   source = "./modules/service-account-role"
 
   role_name            = "github-actions-iam-pipeline"
-  description          = "OIDC-federated role for GitOps IAM pipeline — no static keys"
+  description          = "OIDC-federated role for GitOps IAM pipeline - no static keys"
   github_org           = var.github_org
   github_repo          = var.github_repo
   github_branch        = "main"
@@ -69,7 +71,7 @@ module "break_glass_role" {
   source = "./modules/least-privilege-role"
 
   role_name        = "break-glass-admin-${var.environment}"
-  description      = "Emergency elevated access — requires MFA + dual approval. All actions CloudTrail-logged."
+  description      = "Emergency elevated access - requires MFA + dual approval. All actions CloudTrail-logged."
   trusted_accounts = [var.security_account_id]
   owner_team       = "security"
   environment      = var.environment
@@ -283,7 +285,7 @@ resource "aws_cloudtrail" "iam_audit" {
 }
 
 resource "aws_s3_bucket" "cloudtrail_logs" {
-  bucket        = "your-org-iam-cloudtrail-logs-${var.environment}"
+  bucket        = "charlescephas-iam-cloudtrail-logs-${var.environment}"
   force_destroy = false
 
   tags = {

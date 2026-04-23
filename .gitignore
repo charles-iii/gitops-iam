@@ -1,2 +1,4 @@
+.terraform/
+.terraform.lock.hc1
 .DS_Store
-**/.DS_Store
+/**/.DS_Store

@@ -9,9 +9,9 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "your-org-terraform-state"
+    bucket         = "charlescephas-gitops-iam-tfstate"
     key            = "gitops-iam/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "us-east-2"
     dynamodb_table = "terraform-state-lock"
     encrypt        = true
   }

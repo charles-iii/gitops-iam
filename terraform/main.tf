@@ -145,6 +145,12 @@ resource "aws_iam_policy" "iam_pipeline_policy" {
           "s3:PutObject",
           "s3:ListBucket",
           "s3:DeleteObject",
+          "s3:GetBucketVersioning",
+          "s3:GetEncryptionConfiguration",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketPolicy",
+          "s3:PutBucketPolicy",
+          "s3:GetBucketAcl",
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:DeleteItem"
@@ -152,8 +158,32 @@ resource "aws_iam_policy" "iam_pipeline_policy" {
         Resource = [
           "arn:aws:s3:::charlescephas-gitops-iam-tfstate",
           "arn:aws:s3:::charlescephas-gitops-iam-tfstate/*",
+          "arn:aws:s3:::charlescephas-iam-cloudtrail-logs-dev",
+          "arn:aws:s3:::charlescephas-iam-cloudtrail-logs-dev/*",
           "arn:aws:dynamodb:us-east-2:027038267089:table/terraform-state-lock"
         ]
+      },
+      {
+        Sid    = "AllowIAMRead"
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole",
+          "iam:ListRoles",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:ListPolicies",
+          "iam:ListPolicyVersions",
+          "iam:GetOpenIDConnectProvider",
+          "iam:ListOpenIDConnectProviders",
+          "cloudtrail:GetTrail",
+          "cloudtrail:GetTrailStatus",
+          "cloudtrail:ListTrails",
+          "cloudtrail:DescribeTrails",
+          "cloudtrail:GetEventSelectors"
+        ]
+        Resource = "*"
       }
     ]
   })

@@ -147,9 +147,18 @@ resource "aws_iam_policy" "iam_pipeline_policy" {
           "arn:aws:s3:::charlescephas-gitops-iam-tfstate",
           "arn:aws:s3:::charlescephas-gitops-iam-tfstate/*",
           "arn:aws:s3:::charlescephas-iam-cloudtrail-logs-dev",
-          "arn:aws:s3:::charlescephas-iam-cloudtrail-logs-dev/*",
-          "arn:aws:dynamodb:us-east-2:027038267089:table/terraform-state-lock"
+          "arn:aws:s3:::charlescephas-iam-cloudtrail-logs-dev/*"
         ]
+      },
+       {
+        Sid    = "AllowDynamoDBLock"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem"
+        ]
+        Resource = "arn:aws:dynamodb:us-east-2:027038267089:table/terraform-state-lock"
       },
       {
         Sid    = "AllowIAMRead"

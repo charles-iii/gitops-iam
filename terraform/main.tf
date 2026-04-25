@@ -136,6 +136,24 @@ resource "aws_iam_policy" "iam_pipeline_policy" {
           "iam:PutUserPolicy"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "AllowTerraformState"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:DeleteObject",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem"
+        ]
+        Resource = [
+          "arn:aws:s3:::charlescephas-gitops-iam-tfstate",
+          "arn:aws:s3:::charlescephas-gitops-iam-tfstate/*",
+          "arn:aws:dynamodb:us-east-2:027038267089:table/terraform-state-lock"
+        ]
       }
     ]
   })

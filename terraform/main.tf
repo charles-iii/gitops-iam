@@ -141,19 +141,7 @@ resource "aws_iam_policy" "iam_pipeline_policy" {
         Sid    = "AllowTerraformState"
         Effect = "Allow"
         Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket",
-          "s3:DeleteObject",
-          "s3:GetBucketVersioning",
-          "s3:GetEncryptionConfiguration",
-          "s3:GetBucketPublicAccessBlock",
-          "s3:GetBucketPolicy",
-          "s3:PutBucketPolicy",
-          "s3:GetBucketAcl",
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:DeleteItem"
+          "s3:*"
         ]
         Resource = [
           "arn:aws:s3:::charlescephas-gitops-iam-tfstate",

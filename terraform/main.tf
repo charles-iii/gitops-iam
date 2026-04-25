@@ -178,7 +178,8 @@ resource "aws_iam_policy" "iam_pipeline_policy" {
           "cloudtrail:GetTrailStatus",
           "cloudtrail:ListTrails",
           "cloudtrail:DescribeTrails",
-          "cloudtrail:GetEventSelectors"
+	  "cloudtrail:GetEventSelectors",
+	  "cloudtrail:ListTags"
         ]
         Resource = "*"
       }

@@ -408,4 +408,3 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs" {
   })
 }
 # pipeline test
-# trigger

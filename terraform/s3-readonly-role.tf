@@ -5,7 +5,7 @@
 # Change request: DEMO-001
 
 module "s3_readonly_role" {
-  source = "../modules/least-privilege-role"
+  source = "./modules/least-privilege-role"
 
   role_name        = "s3-readonly-${var.environment}"
   description      = "Read-only access to S3 - least privilege role for data consumers"

@@ -34,10 +34,9 @@ jobs:
           OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | \
             python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
-          PAYLOAD=$(echo $OIDC_TOKEN | cut -d'.' -f2 | base64 -d 2>/dev/null || \
-            echo $OIDC_TOKEN | cut -d'.' -f2 | python3 -c "import sys,base64; print(base64.b64decode(sys.stdin.read() + '==').decode())")
-          echo "OIDC sub claim:"
-          echo $PAYLOAD | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('sub','not found'))"
+          PAYLOAD=$(echo $OIDC_TOKEN | cut -d'.' -f2)
+          echo "sub claim:"
+          echo $PAYLOAD | base64 -d 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('sub','not found'))" || echo "decode failed"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

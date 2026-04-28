@@ -74,7 +74,8 @@ data "aws_iam_policy_document" "oidc_trust" {
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:${var.github_org}/${var.github_repo}:ref:refs/heads/${var.github_branch}",
 		  "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/*",
-        	  "repo:${var.github_org}/${var.github_repo}:pull_request"
+        	  "repo:${var.github_org}/${var.github_repo}:pull_request",
+		  "repo:${var.github_org}/${var.github_repo}:push"
 
 
 ]
